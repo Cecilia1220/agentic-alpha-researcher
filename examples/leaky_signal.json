@@ -1,0 +1,6 @@
+{
+  "thesis": "The next holding-period winners will rank above the losers.",
+  "expression": "rank(forward_return)",
+  "falsifier": "If future realized returns cannot be observed by decision time, the expression is invalid.",
+  "evidence_ids": []
+}

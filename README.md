@@ -1,61 +1,75 @@
 # Agentic Alpha Researcher
 
-A local prototype for Trexquant SuperDay Topic B. Give it a research objective and a daily equity panel. It reads a small literature corpus, profiles feature availability, proposes a falsifiable hypothesis with an executable signal, evaluates the signal, and uses the diagnosis to decide what to try next. Every attempt is recorded.
+A local research prototype for Trexquant SuperDay Topic B. It turns a research brief into an auditable series of daily equity signal experiments. Each candidate includes an economic thesis, an executable scoring rule, a falsifier, and an evaluation trace. A run can finish without a candidate if the evidence falls short.
 
-## Run the demo
+## Quick start
 
-Python 3.10 or newer. Run from the repository root. The offline mode uses Python's standard library and the included synthetic CSV.
+Python 3.10 or newer. The offline planner, data loader, feature recipes, and backtester use the Python standard library. From the repository root:
 
 ```sh
 demo_dir="$(mktemp -d)"
-python3 -m alpha_lab --holdout --registry "$demo_dir/research.sqlite3" --reports "$demo_dir/reports"
-python3 -m alpha_lab --seed examples/leaky_signal.json --registry "$demo_dir/research.sqlite3" --reports "$demo_dir/reports"
+
+# Retrieve ideas first, then evaluate a signal and its execution control.
+python3 -m alpha_lab --objective "Study short-horizon reversal and liquidity pressure" \
+  --holdout --registry "$demo_dir/main.sqlite3" --reports "$demo_dir/reports"
+
+# Start from data and a directed brief, then retrieve relevant literature.
+python3 -m alpha_lab --brief examples/research_brief.json \
+  --firm-policy examples/firm_policy.json --market-context examples/market_context.json \
+  --rounds 1 --registry "$demo_dir/brief.sqlite3" --reports "$demo_dir/reports"
+
+# Fit a supervised score using only labels available by each decision.
+python3 -m alpha_lab --objective "Test a ridge model" \
+  --rounds 1 --registry "$demo_dir/model.sqlite3" --reports "$demo_dir/reports"
+
+# Exercise the hard look-ahead gate.
+python3 -m alpha_lab --seed examples/leaky_signal.json \
+  --registry "$demo_dir/main.sqlite3" --reports "$demo_dir/reports"
+
 python3 -m unittest discover -s tests -v
 ```
 
-The first command starts from a broad objective and proposes three candidates. The first ranks yesterday's losers higher. Its later validation window shows **+2.79 bps/day gross and −19.10 bps/day after costs**. The critic proposes smoothing over three sessions. Validation turnover falls from **1.82× to 1.21×** and net performance improves to **−9.66 bps/day**. The revised signal still fails the screen. The run closes without a shortlist and does not evaluate the holdout window. The separate seeded command rejects the forward-return label before calling the backtester.
+The first run proposes daily reversal. In validation its gross result is **+2.79 bps/day**, and its net result is **−19.10 bps/day**. The critic schedules a paired experiment. It keeps the signal, data, label and costs fixed and rebalances every second session. Validation turnover falls from **1.82× to 0.91×** with the same daily Rank IC, while gross P&L falls to **−9.54 bps/day** and net P&L falls to **−20.50 bps/day**. The control fails. The next hypothesis also fails the screen. The run records the failures and leaves the holdout window unevaluated. All figures come from the bundled synthetic dataset.
 
-To start with another research objective, use a fresh registry.
+The default registry is `runs/research.sqlite3`. Later runs use it to avoid repeating experiments with the same expression, execution rule, data and cost assumptions. Use a fresh registry to reproduce the demonstration. JSON reports default to `runs/reports/`.
 
-```sh
-momentum_dir="$(mktemp -d)"
-python3 -m alpha_lab --objective "Test whether momentum predicts relative returns" --rounds 2 \
-  --registry "$momentum_dir/research.sqlite3" --reports "$momentum_dir/reports"
-```
+## Inputs and roles
 
-The default registry at `runs/research.sqlite3` is persistent and later runs skip already evaluated expressions on the same dataset and cost policy. JSON reports in `runs/reports/` include input provenance, hypotheses, implementations, metrics, decisions, and stopping conditions. A fresh registry reproduces the offline research trace and metrics with a new run ID.
+- **Research brief.** A free-text objective can be broad or directed. A JSON brief can also choose `literature_first` or `data_first` and narrow the allowed feature set.
+- **Firm policy.** The tool supports daily equities. The policy can restrict features, require a minimum cost assumption, or disallow fitted models. The compiler enforces the intersection of brief and policy features. The JSON files demonstrate local enforcement. A hosted deployment should load firm policy from configuration controlled by the firm.
+- **Market context.** An optional file supplies dated summaries and source names. The planner receives the most recent snapshot available strictly before the first research session. This is background for forming hypotheses. Tradable market context would need to enter through the point-in-time feature store at each decision date. The bundled snapshots are synthetic.
+- **Literature retrieval.** Supply a JSON corpus with `--literature`. Each record is a short passage or research note with an ID, title, source, availability date, keywords and text. The retriever returns up to two matching passages per query, filtered by the research start date. Literature-first retrieves from the objective before proposing. Data-first begins with the objective and feature profile. Both routes retrieve again using the thesis and expression and log the excerpts for evidence review. The offline planner chooses from explicit ideas, while the optional OpenAI planner can propose new expressions. Retrieval uses lexical matches, so related wording and citation scope still require review.
+- **Research loop.** The planner proposes, the validator checks the expression, and the backtester computes results. The critic applies fixed acceptance rules and can schedule a controlled change to execution cadence. The evidence review flags the specific case where a volume-only score is used to infer the direction of news. SQLite records the run and attempted plans, including blocked proposals, diagnoses and controls. The attempt limit is one to five per run.
 
-## Architecture and data contracts
+## Data, features and scoring
 
-1. **Explorer.** The input is a research objective (up to 400 characters), a registered daily CSV, a bounded attempt count, and a fixed cost policy. The explorer ranks three curated notes by objective keywords and profiles point-in-time feature coverage over development dates. The planner sees note provenance and aggregate coverage for each registered feature, including features with zero same-day coverage.
-2. **Research planner.** One provider proposes a candidate with `thesis`, `expression`, `falsifier`, and `evidence_ids`. The offline provider picks from four explicit hypotheses or variants using the objective, coverage, prior tests, and the last diagnosis. The optional model provider can propose new expressions within the same grammar.
-3. **Implementation and validation.** The signal is a daily cross-sectional rank score. The grammar is `rank(term)`. A term may be a registered feature, its negation, a sum or difference of terms, `lag(feature, n)` for 1–10 sessions, or `mean(feature, n)` for 2–10 sessions. The interpreter uses an allowlisted syntax tree and a release-aware feature accessor. Reserved execution fields, targets, unknown names, forward lags, and arbitrary code are rejected.
-4. **Backtester and critic.** The deterministic evaluator returns mean daily Spearman rank IC, IC coverage, score coverage, turnover, and gross, net, and doubled-cost P&L. The deterministic critic records which fixed checks failed and gives the next planner call the diagnosis. The candidate's prose falsifier is recorded for review. The same numerical screen applies to all candidates. Shortlisting requires mean IC of at least 0.02, at least 80% mean score coverage and 80% valid IC days, and positive net and doubled-cost performance in **both** development windows. These thresholds and the default 12 bps cost are illustrative demo choices.
-5. **Memory and stopping.** SQLite stores each run and attempt, including rejections and reasons. The latest 12 evaluated expressions in the same data/protocol/cost scope go into the next proposal context. Canonical syntax prevents repeat evaluations in serial runs, with a full lookup beyond the context limit. The runner stops on budget, exhaustion of the offline policy, or a provider error. It ranks eligible candidates by the worse development-window doubled-cost result. A finished output includes an auditable candidate with a thesis, falsifier, expression, evidence IDs and metrics, or a report explaining why the run produced no candidate.
+The bundled panel has 96 weekday sessions and eight fictitious assets. The simulation plants weak reversal early and removes it later. Regenerate it with `python3 data/generate.py`.
 
-### CSV and execution clock
+- **Raw CSV.** One row per `date,symbol`, with `open,close,volume,value_score,value_available`. The panel is rectangular and needs at least 40 sessions and six symbols. The loader derives one- and five-session close-to-close returns and current volume divided by the preceding five-session mean, minus one. The precomputed-feature CSV format (`ret_1d,ret_5d,volume_shock` in place of `close,volume`) is also accepted. Precomputed features must already obey their stated as-of contract.
+- **Availability.** Prices, returns and volume features used for scoring are assumed available by the decision close. The report value has its own release date. The signal accessor checks the date on every read. Missing or unreleased values are excluded. Source timestamps, corporate actions and universe history must be supplied by a production data store.
+- **Formula score.** Expressions have the form `rank(term)`, where terms are registered features, negation, sums or differences, positive lags and trailing means. For example, `rank(-ret_1d)` ranks recent losers higher. `rank(-mean(ret_1d, 3))` is a different signal with a three-session smoothing rule. No arbitrary code runs.
+- **Fitted score.** `rank(ridge(ret_1d, volume_shock, 20))` learns the weights of two within-day ranked predictors using a fixed ridge penalty. At decision close `t`, the most recent permitted training label is for the decision on `t-2`, whose return ends at the open of `t`. The model trains on up to 20 completed decision dates and requires ten valid cross-sections before producing a score. It predicts the next tradable return relative to the contemporaneous cross-section, and its daily prediction ranks are the alpha scores. The sample model misses the coverage screen during warm-up and also fails later net performance.
 
-The synthetic file has 96 weekday sessions and eight fictitious assets. It is deterministic and can be regenerated with `python3 data/generate.py`. The simulation deliberately plants weak short-run reversal in the early window and removes it later. The planner receives coverage and experiment results, with no access to the generating process.
+## Backtest and decisions
 
-- **Key and units.** Each row is one `date,symbol` pair. A rectangular, fixed-universe panel has at least 40 sessions and six assets. `open` is a positive price. `ret_1d` and `ret_5d` are decimal close-to-close returns known by session close. `volume_shock` is a synthetic activity score known by close. `value_score` uses `value_available`, an ISO date assumed available by that date's close. Blank feature values are missing.
-- **Point in time.** Lags count observed sessions. Each read checks that its observation date and release date are no later than the decision close. In the sample, the value score is released two sessions later, so `rank(value_score)` has zero decision-day coverage and `rank(lag(value_score, 2))` can score after warm-up. Trailing means require all observations. Unknown releases and upstream timestamp and lineage correctness are the data provider's responsibility.
-- **Target and portfolio.** Score at close `t`, enter at open `t+1`, and measure the open-to-open return ending at `t+2`. Rank IC uses within-day midranks on available scores and realized returns. Fewer than six scores or a constant score gives no positions. The strategy buys the top third and shorts the bottom third, rounded down, at 0.5 target notional per side. Cutoff ties split the allocation, and opposing tied positions net out. Turnover is traded notional as a fraction of fixed reference notional, accounting for price drift, first entry, and final liquidation. Costs scale linearly with traded notional.
-- **Time splits.** Chronological 60/20/20 research, validation, and holdout by session count. The last two decision dates in each block are purged so both execution endpoints stay inside the block. Lookback features may use eligible earlier observations. Both development windows inform revision and selection. With `--holdout`, at most one frozen candidate may be evaluated once per dataset per registry. The fixture CSV includes all three windows. The local registry prevents repeated holdout evaluations within that registry. An independent evaluation requires separately controlled data and permissions.
+Decide after the close on `t`, enter at the open of `t+1`, and measure the open-to-open return ending at `t+2`. The simulator buys and shorts the top and bottom thirds, rounded down, with target notional of 0.5 per side. It splits cutoff ties and records opening, rebalancing and liquidation turnover against fixed reference notional. The cadence control carries marked holdings between scheduled rebalances, subject to liquidating on unusable scores. Daily Rank IC always compares the original daily scores with one-day labels.
+
+The chronological 60/20/20 split purges the last two decision dates in each block. Research and validation both inform iteration. To shortlist, the fixed demo screen requires at least 80% score coverage and valid IC days, Rank IC of at least 0.02, and positive net P&L at base and doubled costs in both development blocks. The default cost is 12 bps per unit traded. These are demonstration thresholds. The prose falsifier is recorded separately from the numerical screen.
+
+With `--holdout`, the runner evaluates at most one frozen candidate per dataset per local registry and withholds its result from the planner. A frozen rolling model may use earlier labels that have matured by a later holdout decision, as specified before evaluation. The CSV includes all three windows. Independent verification requires separately controlled data and access.
+
+The sample backtest assumes a fixed universe and omits market impact, borrow availability, realistic auction fills, factor neutrality and capacity. The ranking and P&L are synthetic. A strategy that passes the local screen would still need independent evidence.
 
 ## Optional OpenAI planner
 
-Set `OPENAI_API_KEY` securely in your shell environment. A shell that supports it can prompt without echoing or putting the key in shell history.
+Set `OPENAI_API_KEY` securely in the shell environment. Then run:
 
 ```sh
 python3 -m alpha_lab --provider openai --model gpt-4o-mini --rounds 2
 ```
 
-Use `--model` or `OPENAI_MODEL` to choose a Responses API model that supports Structured Outputs. The implementation makes at most one request per round with a 600-output-token cap, at most five rounds, and a 25-second socket timeout. API calls may be billed. The planner transmits the objective, bundled notes, aggregate feature coverage, and compact development experiment feedback. It uses `store: false`. Keep proprietary information out of the objective and experiment context unless you are authorized to send it. Keep the API key out of reports, commands shared with others, and Git. The included test exercises the wire contract with a simulated API response. The offline demo is the reproducible interview path.
+The planner uses the Responses API with Structured Outputs and `store: false`. It can send the objective, brief, policy, feature summaries, retrieved excerpts, the dated market summary and recent development feedback to OpenAI. Supply only material you are authorized to transmit. Keep credentials out of Git and reports. Requests are capped at one per proposal with a 600-output-token limit and a 25-second socket timeout. The automated test uses a simulated response. The offline commands provide the reproducible demo.
 
 [OpenAI Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)
-
-## Scope and limitations
-
-This fixture demonstrates research mechanics. Its rank IC and P&L are synthetic. The cost model omits market impact, auction fill risk, borrow, liquidity constraints, fees by asset, and portfolio risk controls. The panel assumes a fixed universe, clean opening prices, and trustworthy feature lineage. The prototype tests release timing at date granularity. A production feature store would need as-of joins, source timestamps, revision and universe history, and independent auditing. The paper notes seed ideas and document scope mismatches. They provide no support for the performance of these particular signals. The local registry uses syntactic deduplication. Parallel runs may still evaluate the same expression, and economically equivalent expressions can differ syntactically.
 
 See [External system evaluation and interview walkthrough](docs/evaluation.md).

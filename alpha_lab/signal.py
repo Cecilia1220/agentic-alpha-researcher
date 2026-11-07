@@ -10,7 +10,7 @@ class InvalidSignal(ValueError):
     pass
 
 
-def compile_signal(expression: str) -> ast.expr:
+def compile_signal(expression: str, *, allowed=FEATURES, allow_models=True) -> ast.expr:
     if not isinstance(expression, str) or not 1 <= len(expression) <= 160:
         raise InvalidSignal("expression must be a string of 1–160 characters")
     try:
@@ -29,6 +29,8 @@ def compile_signal(expression: str) -> ast.expr:
             raise InvalidSignal(f"{node.id} is reserved for outcomes/execution, which would leak future information")
         if node.id not in FEATURES:
             raise InvalidSignal(f"unregistered feature {node.id}")
+        if node.id not in allowed:
+            raise InvalidSignal(f"firm policy disallows feature {node.id}")
 
     def term(node):
         if isinstance(node, ast.Name):
@@ -38,6 +40,18 @@ def compile_signal(expression: str) -> ast.expr:
         elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
             term(node.left)
             term(node.right)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ridge":
+            if not allow_models:
+                raise InvalidSignal("firm policy disallows fitted models")
+            if node is not tree.args[0] or node.keywords or len(node.args) != 3:
+                raise InvalidSignal("use rank(ridge(feature, feature, sessions))")
+            left, right, window = node.args
+            feature(left)
+            feature(right)
+            if left.id == right.id:
+                raise InvalidSignal("ridge needs two different features")
+            if not isinstance(window, ast.Constant) or type(window.value) is not int or not 15 <= window.value <= 40:
+                raise InvalidSignal("ridge needs an integer training window from 15 to 40 sessions")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"lag", "mean"}:
             if len(node.args) != 2 or node.keywords:
                 raise InvalidSignal("use lag(feature, n) or mean(feature, n)")
@@ -69,7 +83,50 @@ def ranks(values: dict) -> dict:
     return {key: locations[value] for key, value in values.items()}
 
 
+def _ranked_inputs(panel, left, right, session):
+    paired = {}
+    for symbol in panel.symbols:
+        x = panel.feature(left, session, session, symbol)
+        y = panel.feature(right, session, session, symbol)
+        if x is not None and y is not None:
+            paired[symbol] = (x, y)
+    x_rank = ranks({s: pair[0] for s, pair in paired.items()})
+    y_rank = ranks({s: pair[1] for s, pair in paired.items()})
+    return {s: (x_rank[s] - 0.5, y_rank[s] - 0.5) for s in paired}
+
+
+def _ridge_score(panel, term, session):
+    """Fit two cross-sectional predictors using labels settled by decision close."""
+    left, right, lookback = term.args
+    xx, yy, xy, xr, yr = 1.0, 1.0, 0.0, 0.0, 0.0  # fixed L2 penalty
+    valid_days = 0
+    for day in range(max(0, session - lookback.value - 1), session - 1):
+        inputs = _ranked_inputs(panel, left.id, right.id, day)
+        if len(inputs) < 6:
+            continue
+        returns = {s: panel.forward_return(day, s) for s in inputs}
+        baseline = fmean(returns.values())
+        for symbol, (x, y) in inputs.items():
+            target = returns[symbol] - baseline
+            xx += x * x
+            yy += y * y
+            xy += x * y
+            xr += x * target
+            yr += y * target
+        valid_days += 1
+    if valid_days < 10:
+        return {}
+    det = xx * yy - xy * xy
+    a, b = (yy * xr - xy * yr) / det, (xx * yr - xy * xr) / det
+    current = _ranked_inputs(panel, left.id, right.id, session)
+    return ranks({symbol: a * x + b * y for symbol, (x, y) in current.items()})
+
+
 def score(panel, tree: ast.expr, session: int) -> dict:
+    term = tree.args[0]
+    if isinstance(term, ast.Call) and term.func.id == "ridge":
+        return _ridge_score(panel, term, session)
+
     def value(node, symbol):
         if isinstance(node, ast.Name):
             return panel.feature(node.id, session, session, symbol)

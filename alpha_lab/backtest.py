@@ -45,7 +45,7 @@ def _weights(scores, symbols):
     return weights
 
 
-def evaluate(panel, tree, window, cost_bps):
+def evaluate(panel, tree, window, cost_bps, *, rebalance_every=1):
     """Close t score. Enter open t+1 and exit or rebalance open t+2."""
     symbols = panel.symbols
     drifted = dict.fromkeys(symbols, 0.0)
@@ -53,9 +53,10 @@ def evaluate(panel, tree, window, cost_bps):
     for session in range(window.start, window.end - 2):
         scores = score(panel, tree, session)
         coverage.append(len(scores) / len(symbols))
-        weights = _weights(scores, symbols)
-        entry, exit_ = panel.dates[session + 1:session + 3]
-        returns = {s: panel.rows[exit_, s]["open"] / panel.rows[entry, s]["open"] - 1 for s in symbols}
+        target = _weights(scores, symbols)
+        # Carry marked holdings between scheduled rebalances. Exit on unusable scores.
+        weights = target if (session - window.start) % rebalance_every == 0 or not any(target.values()) else drifted
+        returns = {s: panel.forward_return(session, s) for s in symbols}
         if len(scores) >= 6:
             ic = rank_ic(scores, {s: returns[s] for s in scores})
             if ic is not None:

@@ -1,0 +1,6 @@
+{
+  "asset_class": "daily_equities",
+  "allowed_features": ["ret_1d", "ret_5d", "volume_shock"],
+  "minimum_cost_bps": 12,
+  "allow_models": true
+}

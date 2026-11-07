@@ -1,16 +1,20 @@
 import copy
+import csv
 import io
 import json
 import os
 import tempfile
 import unittest
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
 from alpha_lab.backtest import _weights, evaluate, rank_ic, split
+from alpha_lab.context import Brief, FirmPolicy, market_snapshot
 from alpha_lab.data import load_panel
+from alpha_lab.literature import retrieve
 from alpha_lab.planner import Candidate, OfflinePlanner, OpenAIPlanner, PlannerUnavailable
 from alpha_lab.registry import Registry
 from alpha_lab.research import run_research
@@ -40,7 +44,7 @@ class PrototypeTests(unittest.TestCase):
         return run_research(self.panel, self.registry, **options)
 
     def test_autonomous_failure_revision_and_memory(self):
-        report = self.run_demo(reveal_holdout=True)
+        report = self.run_demo(objective="Study short-horizon reversal and liquidity pressure", reveal_holdout=True)
         original, revised, unrelated = report["attempts"]
         self.assertEqual([item["decision"] for item in report["attempts"]], ["revise", "reject", "reject"])
         self.assertEqual(revised["follows_step"], 1)
@@ -48,7 +52,11 @@ class PrototypeTests(unittest.TestCase):
         before, after = (item["metrics"]["validation"] for item in (original, revised))
         self.assertGreater(before["gross_bps_per_day"], 0)
         self.assertLess(after["mean_turnover"], before["mean_turnover"])
-        self.assertLess(before["net_bps_per_day"], after["net_bps_per_day"])
+        self.assertEqual(before["rank_ic"], after["rank_ic"])
+        self.assertEqual(original["expression"], revised["expression"])
+        self.assertEqual(revised["rebalance_every"], 2)
+        self.assertGreater(before["net_bps_per_day"], after["net_bps_per_day"])
+        self.assertIn("Unsigned", unrelated["pretest_flags"][0])
         self.assertLess(after["net_bps_per_day"], 0)
         self.assertIsNone(report["selected"])
         self.assertEqual(report["holdout"]["status"], "no_eligible_candidate")
@@ -57,8 +65,77 @@ class PrototypeTests(unittest.TestCase):
         self.assertEqual(rerun["stop_reason"], "no_novel_offline_hypothesis")
 
     def test_objective_changes_initial_proposal(self):
-        report = self.run_demo(objective="Test whether momentum predicts relative returns", budget=1)
+        report = self.run_demo(objective="Test a short-horizon momentum hypothesis", budget=1)
         self.assertEqual(report["attempts"][0]["expression"], "rank(ret_5d)")
+
+    def test_two_retrieval_routes_and_date_boundaries(self):
+        objective = "Study short-horizon momentum"
+        literature = self.run_demo(objective=objective, budget=1)
+        self.assertEqual(literature["literature"][0]["id"], "momentum")
+        future = dict(self.notes[2], id="later", available_on="2025-01-01")
+        self.assertNotIn("later", [p["id"] for p in retrieve(self.notes + [future], objective, self.panel.dates[0])])
+        data_first = self.run_demo(
+            brief=Brief("Test abnormal volume", "data_first"), budget=1,
+        )
+        self.assertEqual(data_first["literature"], [])
+        self.assertEqual(data_first["attempts"][0]["evidence_review"][0]["id"], "volume")
+        snapshots = [
+            {"available_on": "2023-12-01", "summary": "Older", "source": "test"},
+            {"available_on": "2024-01-02", "summary": "Later", "source": "test"},
+        ]
+        self.assertEqual(market_snapshot(snapshots, date(2024, 1, 2))["summary"], "Older")
+
+    def test_policy_and_brief_constraints_reach_the_compiler(self):
+        candidate = Candidate("Momentum", "rank(ret_5d)", "No IC", [])
+        policy = FirmPolicy.parse({"allowed_features": ["ret_1d"], "minimum_cost_bps": 12, "allow_models": False})
+        with self.assertRaisesRegex(ValueError, "requires at least"):
+            self.run_demo(policy=policy, cost_bps=0)
+        with patch("alpha_lab.research.evaluate") as backtest:
+            event = self.run_demo(policy=policy, seed=candidate, budget=1)["attempts"][0]
+            backtest.assert_not_called()
+        self.assertIn("firm policy disallows", event["reasons"][0])
+        with self.assertRaisesRegex(ValueError, "no permitted features"):
+            self.run_demo(policy=policy, brief=Brief("Momentum", allowed_features=("ret_5d",)))
+        with self.assertRaisesRegex(InvalidSignal, "disallows fitted models"):
+            compile_signal("rank(ridge(ret_1d, ret_5d, 20))", allow_models=False)
+
+    def test_raw_feature_recipes_and_model_use_only_matured_labels(self):
+        session, symbol = 30, self.panel.symbols[0]
+        today = self.panel.rows[self.panel.dates[session], symbol]
+        previous = self.panel.rows[self.panel.dates[session - 1], symbol]
+        volume_base = sum(self.panel.rows[day, symbol]["volume"] for day in self.panel.dates[session - 5:session]) / 5
+        self.assertAlmostEqual(today["ret_1d"], today["close"] / previous["close"] - 1)
+        self.assertAlmostEqual(today["volume_shock"], today["volume"] / volume_base - 1)
+        expr = compile_signal("rank(ridge(ret_1d, volume_shock, 20))")
+        self.assertEqual(score(self.panel, expr, 3), {})
+        historical_return = self.panel.forward_return
+        with patch.object(type(self.panel), "forward_return", autospec=True,
+                          side_effect=lambda _, day, name: historical_return(day, name)) as labels:
+            expected = score(self.panel, expr, session)
+        self.assertEqual(max(call.args[1] for call in labels.call_args_list), session - 2)
+        self.assertEqual(len(expected), len(self.panel.symbols))
+        revised = replace(self.panel, rows=copy.deepcopy(self.panel.rows))
+        for (day, name), row in revised.rows.items():
+            if day > self.panel.dates[session]:
+                row["open"] *= 1 + 0.1 * self.panel.symbols.index(name)
+                row["volume_shock"] = -999
+        self.assertEqual(score(revised, expr, session), expected)
+        report = self.run_demo(objective="Test ridge model", budget=1)
+        self.assertIn("metrics", report["attempts"][0])
+        self.assertIn("ridge", report["attempts"][0]["expression"])
+
+    def test_precomputed_csv_remains_supported(self):
+        fields = ["date", "symbol", "open", "ret_1d", "ret_5d", "volume_shock", "value_score", "value_available"]
+        path = self.registry.path.with_suffix(".csv")
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            for (day, symbol), row in self.panel.rows.items():
+                writer.writerow({"date": day, "symbol": symbol, **row})
+        legacy = load_panel(path)
+        self.assertEqual(legacy.schema, "features")
+        expr = compile_signal("rank(-ret_1d)")
+        self.assertEqual(score(legacy, expr, 20), score(self.panel, expr, 20))
 
     def test_seeded_label_is_rejected_before_backtest(self):
         seed = Candidate.parse(json.loads((ROOT / "examples/leaky_signal.json").read_text()), set())

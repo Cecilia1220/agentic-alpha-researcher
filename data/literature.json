@@ -3,21 +3,54 @@
     "id": "contrarian",
     "title": "When Are Contrarian Profits Due to Stock Market Overreaction?",
     "source": "https://www.nber.org/papers/w2977",
-    "keywords": ["reversal", "contrarian", "short", "liquidity", "pressure"],
-    "note": "A contrarian payoff alone cannot identify overreaction. Cross-security lead–lag effects can also account for it. Treat reversal as a testable hypothesis and keep causal explanations tentative."
+    "keywords": [
+      "reversal",
+      "contrarian",
+      "liquidity",
+      "pressure"
+    ],
+    "note": "A contrarian payoff alone cannot identify overreaction. Cross-security lead\u2013lag effects can also account for it. Treat reversal as a testable hypothesis and keep causal explanations tentative.",
+    "available_on": "1989-06-01"
   },
   {
     "id": "volume",
     "title": "Trading Volume and Serial Correlation in Stock Returns",
     "source": "https://www.nber.org/papers/w4193",
-    "keywords": ["volume", "activity", "liquidity", "pressure"],
-    "note": "Aggregate volume can condition daily return autocorrelation in a liquidity-pressure model. A stock-level volume and return signal is a new hypothesis, with a scale and universe mismatch."
+    "keywords": [
+      "volume",
+      "activity",
+      "liquidity",
+      "pressure"
+    ],
+    "note": "Aggregate volume can condition daily return autocorrelation in a liquidity-pressure model. A stock-level volume and return signal is a new hypothesis, with a scale and universe mismatch.",
+    "available_on": "1992-10-01"
   },
   {
     "id": "momentum",
     "title": "Returns to Buying Winners and Selling Losers",
     "source": "https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1540-6261.1993.tb04702.x",
-    "keywords": ["momentum", "continuation", "trend", "drift"],
-    "note": "The paper studies strategies at multi-month horizons. A five-session feature predicting next-open relative returns is an extrapolation with a different horizon."
+    "keywords": [
+      "momentum",
+      "continuation",
+      "trend",
+      "drift"
+    ],
+    "note": "The paper studies strategies at multi-month horizons. A five-session feature predicting next-open relative returns is an extrapolation with a different horizon.",
+    "available_on": "1993-03-01"
+  },
+  {
+    "id": "return_prediction",
+    "title": "Empirical Asset Pricing via Machine Learning",
+    "source": "https://academic.oup.com/rfs/article/33/5/2223/5758276",
+    "available_on": "2020-02-14",
+    "keywords": [
+      "ridge",
+      "model",
+      "predictor",
+      "prediction",
+      "learned",
+      "regression"
+    ],
+    "note": "The paper compares models for predicting equity returns using stock characteristics. Its monthly empirical setting differs from the prototype's daily next-open holding period."
   }
 ]

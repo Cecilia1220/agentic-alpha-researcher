@@ -2,9 +2,9 @@
 
 ## Prototype demonstration
 
-Use the fresh-registry commands in the README. The broad objective retrieves three local reading notes and shows 0% contemporaneous coverage for the delayed feature. The first experiment proposes a falsifiable liquidity-pressure hypothesis and evaluates it at a tradeable clock. In validation it generates positive gross P&L and negative after-cost P&L. Smoothing lowers churn, but the revised signal still fails the predeclared screen. The third candidate also fails. Activity is unsigned, so a claim about positive information flow would need directional data or a better economic mechanism. The seeded forward-label case separately shows a hard safety gate.
+The README demonstration begins with a research objective and retrieves relevant literature. It evaluates a liquidity-pressure hypothesis at a tradeable clock. In validation, reversal generates positive gross P&L and negative after-cost P&L. The controlled follow-up keeps scores fixed and rebalances every second session. It reduces turnover but loses gross performance, leaving net P&L negative. The third candidate illustrates a different failure. Unsigned activity lacks the direction needed for a thesis about good news. The separate seeded case demonstrates rejection of a future label before backtesting.
 
-The run demonstrates a signal revision under a fixed screening policy. System improvement would require a separate comparison. For example, if the planner repeatedly treats positive gross P&L as robust evidence, add an explicit evidence and cost-stress requirement, then compare versions on the same blinded suite.
+The run illustrates an execution revision under a fixed screening policy. System improvement requires a separate comparison. For example, if the planner repeatedly pairs a directional thesis with an unsigned feature, add a thesis-to-feature evidence check and compare system versions on a blinded suite.
 
 ## Compare with a human quant researcher
 

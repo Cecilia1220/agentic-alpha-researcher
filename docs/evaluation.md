@@ -1,10 +1,10 @@
 # External system evaluation and interview walkthrough
 
-## Show one research run
+## Prototype demonstration
 
-Use the fresh-registry commands in the README. Start with the broad objective. Point out the three local reading notes and the 0% contemporaneous coverage of the delayed feature. The first experiment proposes a falsifiable liquidity-pressure hypothesis and evaluates it at a tradeable clock. In validation it generates positive gross P&L and negative after-cost P&L. Smoothing lowers churn, but the revised signal still fails the predeclared screen. The third candidate also fails. Activity is unsigned, so a claim about positive information flow would need directional data or a better economic mechanism. The seeded forward-label case separately shows a hard safety gate.
+Use the fresh-registry commands in the README. The broad objective retrieves three local reading notes and shows 0% contemporaneous coverage for the delayed feature. The first experiment proposes a falsifiable liquidity-pressure hypothesis and evaluates it at a tradeable clock. In validation it generates positive gross P&L and negative after-cost P&L. Smoothing lowers churn, but the revised signal still fails the predeclared screen. The third candidate also fails. Activity is unsigned, so a claim about positive information flow would need directional data or a better economic mechanism. The seeded forward-label case separately shows a hard safety gate.
 
-In Q&A, distinguish the revision made **inside the run** from a change you make **to the system** after seeing this pattern repeatedly. For example, the runner changes the return window once. As the system designer, investigate whether the planner repeatedly confuses positive gross P&L with robust alpha, then make the evidence and cost stress requirements harder to miss and test the new version against the same blinded suite.
+The run demonstrates a signal revision under a fixed screening policy. System improvement would require a separate comparison. For example, if the planner repeatedly treats positive gross P&L as robust evidence, add an explicit evidence and cost-stress requirement, then compare versions on the same blinded suite.
 
 ## Compare with a human quant researcher
 

@@ -1,6 +1,6 @@
 # Agentic Alpha Researcher
 
-A multi-agent research prototype for Trexquant SuperDay Topic B. Given a research objective, the team discovers eligible data, proposes and implements a daily cross-sectional signal, requests a backtest, and decides what to investigate next. The output includes an economic thesis, executable signal, experiment configuration, evidence, and a decision. A run can conclude without an eligible candidate.
+A multi-agent research prototype for discovering and evaluating equity alpha signals. Given a research objective, the team discovers eligible data, proposes and implements a daily cross-sectional signal, requests a backtest, and decides what to investigate next. The output includes an economic thesis, executable signal, experiment configuration, evidence, and a decision. A run can conclude without an eligible candidate.
 
 ## Quick start
 

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "daily_price_volume",
+    "description": "Synthetic daily equities with opening and closing prices, volume, and a delayed accounting observation. Suitable for reversal, momentum, liquidity and activity research.",
+    "format": "csv",
+    "path": "synthetic_panel.csv",
+    "keys": {"date": "date", "symbol": "symbol", "open": "open"},
+    "features": {
+      "close_price": {"column": "close", "availability": "close", "description": "Closing price in synthetic currency units."},
+      "share_volume": {"column": "volume", "availability": "close", "description": "Unsigned shares traded during the session."},
+      "value_score": {"column": "value_score", "availability": "release_date", "release_column": "value_available", "description": "Synthetic accounting observation, published after the observation date."}
+    }
+  }
+]

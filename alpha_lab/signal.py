@@ -10,7 +10,7 @@ class InvalidSignal(ValueError):
     pass
 
 
-def compile_signal(expression: str, *, allowed=FEATURES, allow_models=True) -> ast.expr:
+def compile_signal(expression: str, *, allowed=FEATURES, allow_models=True, registry=FEATURES) -> ast.expr:
     if not isinstance(expression, str) or not 1 <= len(expression) <= 160:
         raise InvalidSignal("expression must be a string of 1–160 characters")
     try:
@@ -27,7 +27,7 @@ def compile_signal(expression: str, *, allowed=FEATURES, allow_models=True) -> a
             raise InvalidSignal("expected a feature name")
         if node.id in EXECUTION_FIELDS:
             raise InvalidSignal(f"{node.id} is reserved for outcomes/execution, which would leak future information")
-        if node.id not in FEATURES:
+        if node.id not in registry:
             raise InvalidSignal(f"unregistered feature {node.id}")
         if node.id not in allowed:
             raise InvalidSignal(f"firm policy disallows feature {node.id}")

@@ -1,16 +1,19 @@
 """Local CLI. Run from the repository root."""
 import argparse
-import json
 import math
 import os
 from pathlib import Path
 
-from .context import Brief, FirmPolicy, market_snapshot, read_json
-from .data import load_panel
+from .agent_runtime import OpenAIToolModel
+from .catalog import Catalog
+from .context import Brief, read_json
 from .literature import validate_corpus
-from .planner import Candidate, DEFAULT_MODEL, OfflinePlanner, OpenAIPlanner
+from .offline import OfflineTeam
+from .planner import Candidate, DEFAULT_MODEL
+from .policy import Policy
 from .registry import Registry
-from .research import print_report, run_research, write_report
+from .research import write_report
+from .team import run_team, show_team_report
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +29,9 @@ def main():
     parser.add_argument("--market-context", type=Path, help="JSON dated background snapshots")
     parser.add_argument("--provider", choices=("offline", "openai"), default="offline")
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL))
-    parser.add_argument("--data", type=Path, default=ROOT / "data" / "synthetic_panel.csv")
+    sources = parser.add_mutually_exclusive_group()
+    sources.add_argument("--data", type=Path, help="Use one CSV with the built-in daily equity schema")
+    sources.add_argument("--catalog", type=Path, help="Use a local catalog of documented data sources")
     parser.add_argument("--registry", type=Path, default=Path("runs/research.sqlite3"))
     parser.add_argument("--reports", type=Path, default=Path("runs/reports"))
     parser.add_argument("--rounds", type=int, choices=range(1, 6), default=3)
@@ -39,29 +44,33 @@ def main():
     if args.seed is not None and (args.provider == "openai" or args.holdout):
         parser.error("seeded experiments are local and cannot open the holdout")
     try:
-        brief = Brief.parse(
-            read_json(args.brief) if args.brief else
-            {"objective": args.objective if args.objective is not None else "Explore daily cross-sectional relative returns."}
-        )
-        policy = FirmPolicy.parse(read_json(args.firm_policy)) if args.firm_policy else FirmPolicy()
+        brief_fields = (read_json(args.brief) if args.brief else
+                        {"objective": args.objective if args.objective is not None else
+                         "Explore daily cross-sectional relative returns."})
+        brief = Brief.parse(brief_fields)
+        policy = Policy.load(args.firm_policy)
         notes = validate_corpus(read_json(args.literature))
-        panel = load_panel(args.data)
-        market = market_snapshot(read_json(args.market_context), panel.dates[0]) if args.market_context else None
-        seed = None
-        if args.seed is not None:
-            value = json.loads(args.seed.read_text(encoding="utf-8"))
-            seed = Candidate.parse(value, {note["id"] for note in notes})
+        if args.data:
+            path = args.data.resolve()
+            catalog = Catalog([{"id": "supplied_csv", "description": "Supplied daily equity panel",
+                                "format": "legacy_csv", "path": path.name}], path.parent)
+        else:
+            catalog = Catalog.from_file(args.catalog or ROOT / "data" / "catalog.json")
+        market = read_json(args.market_context) if args.market_context else []
+        seed = Candidate.parse(read_json(args.seed), {note["id"] for note in notes}) if args.seed else None
         provider = f"openai/{args.model}" if args.provider == "openai" else "offline"
-        planner = OpenAIPlanner(args.model) if args.provider == "openai" else OfflinePlanner()
-        report = run_research(
-            panel, Registry(args.registry), brief.objective, notes, planner,
-            "seeded" if seed else provider, 1 if seed else args.rounds, args.cost_bps,
-            seed=seed, reveal_holdout=args.holdout, brief=brief, policy=policy, market=market,
+        model = (OpenAIToolModel(os.environ.get("OPENAI_API_KEY"), args.model)
+                 if args.provider == "openai" else OfflineTeam())
+        report = run_team(
+            brief=brief, requested_features=brief_fields.get("allowed_features"), policy=policy,
+            catalog=catalog, literature=notes, market_records=market, registry=Registry(args.registry),
+            model=model, provider="seeded" if seed else provider, rounds=1 if seed else args.rounds,
+            cost_bps=args.cost_bps, holdout=args.holdout, seed=seed,
         )
-        print_report(report, write_report(report, args.reports))
+        show_team_report(report, write_report(report, args.reports))
     except (OSError, ValueError) as exc:
         parser.exit(2, f"Error: {exc}\n")
-    return 1 if report["stop_reason"] == "provider_error" else 0
+    return 1 if report["conclusion"] == "agent_stopped" else 0
 
 
 if __name__ == "__main__":

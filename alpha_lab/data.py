@@ -3,7 +3,7 @@ import csv
 import hashlib
 import io
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from statistics import fmean
@@ -31,6 +31,7 @@ class Panel:
     rows: dict
     sha256: str
     schema: str = "features"
+    registry: dict[str, Feature] = field(default_factory=lambda: FEATURES.copy())
 
     def forward_return(self, session: int, symbol: str) -> float:
         entry, exit_ = self.dates[session + 1:session + 3]
@@ -40,17 +41,17 @@ class Panel:
         """Read an observation only if released by the decision session's close."""
         if not 0 <= observation <= decision:
             return None
-        spec = FEATURES[name]
+        spec = self.registry[name]
         row = self.rows[self.dates[observation], symbol]
-        if spec.availability_column and row[spec.availability_column] > self.dates[decision]:
+        if row[name] is not None and spec.availability_column and row[spec.availability_column] > self.dates[decision]:
             return None
         return row[name]
 
-    def explore(self, end: int, allowed=FEATURES) -> dict:
+    def explore(self, end: int, allowed=None) -> dict:
         """Summaries stop at the development boundary and exclude targets."""
         summaries = {}
-        for name in allowed:
-            feature = FEATURES[name]
+        for name in self.registry if allowed is None else allowed:
+            feature = self.registry[name]
             values = [
                 self.feature(name, session, session, symbol)
                 for session in range(end) for symbol in self.symbols

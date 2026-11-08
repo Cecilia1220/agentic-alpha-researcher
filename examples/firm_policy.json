@@ -1,6 +1,11 @@
 {
-  "asset_class": "daily_equities",
-  "allowed_features": ["ret_1d", "ret_5d", "volume_shock"],
-  "minimum_cost_bps": 12,
-  "allow_models": true
+  "title": "Synthetic daily equities research policy",
+  "version": "demo",
+  "controls": {
+    "asset_class": "daily_equities",
+    "allowed_datasets": ["daily_price_volume"],
+    "allowed_features": ["close_price", "share_volume", "value_score"],
+    "minimum_cost_bps": 12,
+    "allow_models": true
+  }
 }

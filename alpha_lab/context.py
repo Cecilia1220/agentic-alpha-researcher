@@ -28,7 +28,7 @@ class Brief:
             raise ValueError("brief objective must contain 1–400 characters")
         if discovery not in ("literature_first", "data_first"):
             raise ValueError("discovery must be literature_first or data_first")
-        return cls(objective, discovery, _feature_list(value.get("allowed_features", list(FEATURES))))
+        return cls(objective, discovery, _feature_list(value.get("allowed_features", list(FEATURES)), registered=False))
 
 
 @dataclass(frozen=True)
@@ -54,9 +54,10 @@ class FirmPolicy:
         return cls(features, cost, models)
 
 
-def _feature_list(features):
+def _feature_list(features, *, registered=True):
     if (not isinstance(features, list) or not features
-            or any(not isinstance(name, str) or name not in FEATURES for name in features)):
+            or any(not isinstance(name, str) or not name.isidentifier()
+                   or (registered and name not in FEATURES) for name in features)):
         raise ValueError("allowed_features needs at least one registered feature")
     return tuple(dict.fromkeys(features))
 
